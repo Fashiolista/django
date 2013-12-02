@@ -51,28 +51,45 @@ def DO_NOTHING(collector, field, sub_objs, using):
 
 
 def force_managed(func):
+    def begin(self):
+        transactions = []
+        for using in self._using_databases:
+            if not transaction.is_managed(using=using):
+                transaction.enter_transaction_management(using=using)
+                forced_managed = True
+            else:
+                forced_managed = False
+            transactions.append([using, forced_managed])
+        return transactions
+
+    def commit(self, transactions):
+        for using, forced_managed in transactions:
+            if forced_managed:
+                transaction.commit(using=using)
+            else:
+                transaction.commit_unless_managed(using=using)
+
+    def rollback(self, transactions):
+        for using, forced_managed in transactions:
+            if forced_managed:
+                transaction.leave_transaction_management(using=using)
+
     @wraps(func)
     def decorated(self, *args, **kwargs):
-        if not transaction.is_managed(using=self.using):
-            transaction.enter_transaction_management(using=self.using)
-            forced_managed = True
-        else:
-            forced_managed = False
+        """
+        handle multidb deletes with one transaction per db
+        """
+        transactions = begin(self)
         try:
             func(self, *args, **kwargs)
-            if forced_managed:
-                transaction.commit(using=self.using)
-            else:
-                transaction.commit_unless_managed(using=self.using)
+            commit(self, transactions)
         finally:
-            if forced_managed:
-                transaction.leave_transaction_management(using=self.using)
+            rollback(self, transactions)
     return decorated
 
 
 class Collector(object):
     def __init__(self, using):
-        self.using = using
         # Initially, {model: set([instances])}, later values become lists.
         self.data = {}
         self.batches = {} # {model: {field: set([instances])}}
@@ -87,6 +104,14 @@ class Collector(object):
         # database tables; proxy models are represented here by their concrete
         # parent.
         self.dependencies = {} # {model: set([models])}
+
+        self._using_databases = set([])
+
+    def using(self, model):
+        from django.db import router
+        db = router.db_for_write(model)
+        self._using_databases |= set([db])
+        return db
 
     def add(self, objs, source=None, nullable=False, reverse_dependency=False):
         """
@@ -223,7 +248,7 @@ class Collector(object):
                 if self.can_fast_delete(sub_objs, from_field=field):
                     self.fast_deletes.append(sub_objs)
                 elif sub_objs:
-                    field.rel.on_delete(self, field, sub_objs, self.using)
+                    field.rel.on_delete(self, field, sub_objs, self.using(model))
 
             # TODO This entire block is only needed as a special case to
             # support cascade-deletes for GenericRelation. It should be
@@ -231,7 +256,7 @@ class Collector(object):
             # or composite fields, and GFKs are reworked to fit into that.
             for relation in model._meta.many_to_many:
                 if not relation.rel.through:
-                    sub_objs = relation.bulk_related_objects(new_objs, self.using)
+                    sub_objs = relation.bulk_related_objects(new_objs, self.using(model))
                     self.collect(sub_objs,
                                  source=model,
                                  source_attr=relation.rel.related_name,
@@ -242,7 +267,8 @@ class Collector(object):
         Gets a QuerySet of objects related to ``objs`` via the relation ``related``.
 
         """
-        return related.model._base_manager.using(self.using).filter(
+        db = self.using(related.model)
+        return related.model._base_manager.using(db).filter(
             **{"%s__in" % related.field.name: objs}
         )
 
@@ -285,7 +311,7 @@ class Collector(object):
         for model, obj in self.instances_with_model():
             if not model._meta.auto_created:
                 signals.pre_delete.send(
-                    sender=model, instance=obj, using=self.using
+                    sender=model, instance=obj, using=self.using(model)
                 )
 
         # fast deletes
@@ -297,7 +323,7 @@ class Collector(object):
             query = sql.UpdateQuery(model)
             for (field, value), instances in six.iteritems(instances_for_fieldvalues):
                 query.update_batch([obj.pk for obj in instances],
-                                   {field.name: value}, self.using)
+                                   {field.name: value}, self.using(model))
 
         # reverse instance collections
         for instances in six.itervalues(self.data):
@@ -307,19 +333,19 @@ class Collector(object):
         for model, batches in six.iteritems(self.batches):
             query = sql.DeleteQuery(model)
             for field, instances in six.iteritems(batches):
-                query.delete_batch([obj.pk for obj in instances], self.using, field)
+                query.delete_batch([obj.pk for obj in instances], self.using(model), field)
 
         # delete instances
         for model, instances in six.iteritems(self.data):
             query = sql.DeleteQuery(model)
             pk_list = [obj.pk for obj in instances]
-            query.delete_batch(pk_list, self.using)
+            query.delete_batch(pk_list, self.using(model))
 
         # send post_delete signals
         for model, obj in self.instances_with_model():
             if not model._meta.auto_created:
                 signals.post_delete.send(
-                    sender=model, instance=obj, using=self.using
+                    sender=model, instance=obj, using=self.using(model)
                 )
 
         # update collected instances

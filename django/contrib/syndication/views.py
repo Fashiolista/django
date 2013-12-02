@@ -194,3 +194,32 @@ class Feed(object):
                 **self.item_extra_kwargs(item)
             )
         return feed
+
+def feed(request, url, feed_dict=None):
+    """Provided for backwards compatibility."""
+    #import warnings
+    #warnings.warn('The syndication feed() view is deprecated. Please use the '
+    #              'new class based view API.',
+    #              category=DeprecationWarning)
+
+    if not feed_dict:
+        raise Http404("No feeds are registered.")
+
+    try:
+        slug, param = url.split('/', 1)
+    except ValueError:
+        slug, param = url, ''
+
+    try:
+        f = feed_dict[slug]
+    except KeyError:
+        raise Http404("Slug %r isn't registered." % slug)
+
+    try:
+        feedgen = f(slug, request).get_feed(param)
+    except FeedDoesNotExist:
+        raise Http404("Invalid feed parameters. Slug %r is valid, but other parameters, or lack thereof, are not." % slug)
+
+    response = HttpResponse(mimetype=feedgen.mime_type)
+    feedgen.write(response, 'utf-8')
+    return response

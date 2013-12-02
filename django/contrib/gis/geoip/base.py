@@ -134,6 +134,9 @@ class GeoIP(object):
         if not isinstance(query, six.string_types):
             raise TypeError('GeoIP query must be a string, not type %s' % type(query).__name__)
 
+        # Convert unicode to string to prevent GeoIP from crashing Python
+        query = str(query)
+
         # GeoIP only takes ASCII-encoded strings.
         query = query.encode('ascii')
 

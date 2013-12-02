@@ -130,6 +130,8 @@ class Settings(BaseSettings):
 
         try:
             mod = importlib.import_module(self.SETTINGS_MODULE)
+            if not getattr(mod, 'SETTINGS_IMPORT_COMPLETED', False):
+                raise ValueError('Import order for the settings system is wrong, one of the settings files is trying to import itself or something which references settings, which is leading to circular imports')
         except ImportError as e:
             raise ImportError("Could not import settings '%s' (Is it on sys.path?): %s" % (self.SETTINGS_MODULE, e))
 

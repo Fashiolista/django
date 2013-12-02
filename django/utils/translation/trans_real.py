@@ -56,7 +56,7 @@ def to_locale(language, to_lower=False):
                 return language[:p].lower()+'_'+language[p+1].upper()+language[p+2:].lower()
             return language[:p].lower()+'_'+language[p+1:].upper()
     else:
-        return language.lower()
+        return language
 
 def to_language(locale):
     """Turns a locale name (en_US) into a language name (en-us)."""

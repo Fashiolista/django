@@ -903,7 +903,12 @@ class InlineForeignKeyField(Field):
 class ModelChoiceIterator(object):
     def __init__(self, field):
         self.field = field
-        self.queryset = field.queryset
+        queryset = field.queryset
+
+        if not queryset.query.high_mark:
+            queryset = queryset[:250]
+
+        self.queryset = queryset
 
     def __iter__(self):
         if self.field.empty_label is not None:

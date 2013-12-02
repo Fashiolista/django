@@ -25,7 +25,9 @@ from django.utils.encoding import force_bytes, force_text, force_str, iri_to_uri
 
 RAISE_ERROR = object()
 absolute_http_url_re = re.compile(r"^https?://", re.I)
-host_validation_re = re.compile(r"^([a-z0-9.-]+|\[[a-f0-9]*:[a-f0-9:]+\])(:\d+)?$")
+# host_validation_re = re.compile(r"^([a-z0-9.-]+|\[[a-f0-9]*:[a-f0-9:]+\])(:\d+)?$")
+# PATCHED: Allow underscores in subdomains
+host_validation_re = re.compile(r"^([a-z0-9._-]+|\[[a-f0-9]*:[a-f0-9:]+\])(:\d+)?$")
 
 
 class UnreadablePostError(IOError):
@@ -68,8 +70,9 @@ class HttpRequest(object):
         if validate_host(host, allowed_hosts):
             return host
         else:
+            print "Invalid HTTP_HOST header (you may need to set ALLOWED_HOSTS): %s in %r" % (host, allowed_hosts)
             raise SuspiciousOperation(
-                "Invalid HTTP_HOST header (you may need to set ALLOWED_HOSTS): %s" % host)
+                "Invalid HTTP_HOST header (you may need to set ALLOWED_HOSTS): %s in %r" % (host, allowed_hosts))
 
     def get_full_path(self):
         # RFC 3986 requires query string arguments to be in the ASCII range.
@@ -476,6 +479,8 @@ def validate_host(host, allowed_hosts):
 
     # Basic sanity check
     if not host_validation_re.match(host):
+        print host
+        1/0
         return False
 
     # Validate only the domain part.

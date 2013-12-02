@@ -108,6 +108,8 @@ class EmailBackend(BaseEmailBackend):
                       for addr in email_message.recipients()]
         message = email_message.message()
         charset = message.get_charset().get_output_charset() if message.get_charset() else 'utf-8'
+        domain = email_message.from_email.split('@')[-1].strip('>')
+        assert domain in settings.ALLOWED_MAIL_DOMAINS
         try:
             self.connection.sendmail(from_email, recipients,
                     force_bytes(message.as_string(), charset))

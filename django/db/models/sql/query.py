@@ -13,7 +13,7 @@ from django.utils.datastructures import SortedDict
 from django.utils.encoding import force_text
 from django.utils.tree import Node
 from django.utils import six
-from django.db import connections, DEFAULT_DB_ALIAS
+from django.db import connections, DEFAULT_DB_ALIAS, router
 from django.db.models import signals
 from django.db.models.constants import LOOKUP_SEP
 from django.db.models.expressions import ExpressionNode
@@ -156,6 +156,7 @@ class Query(object):
         self._extra_select_cache = None
 
         self.extra_tables = ()
+        self.extra_tables_dict = {}
         self.extra_order_by = ()
 
         # A tuple that is a set of model field names and either True, if these
@@ -179,7 +180,7 @@ class Query(object):
         Returns the query as an SQL string and the parameters that will be
         subsituted into the query.
         """
-        return self.get_compiler(DEFAULT_DB_ALIAS).as_sql()
+        return self.clone().get_compiler(router.db_for_read(self.model)).as_sql()
 
     def __deepcopy__(self, memo):
         result = self.clone(memo=memo)
@@ -298,6 +299,7 @@ class Query(object):
         else:
             obj._extra_select_cache = self._extra_select_cache.copy()
         obj.extra_tables = self.extra_tables
+        obj.extra_tables_dict = self.extra_tables_dict
         obj.extra_order_by = self.extra_order_by
         obj.deferred_loading = copy.deepcopy(self.deferred_loading, memo=memo)
         if self.filter_is_sticky and self.used_aliases:

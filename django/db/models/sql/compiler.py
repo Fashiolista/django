@@ -91,7 +91,10 @@ class SQLCompiler(object):
         result = ['SELECT']
 
         if self.query.distinct:
-            result.append(self.connection.ops.distinct_sql(distinct_fields))
+            if isinstance(self.query.distinct, list):
+                result.append('DISTINCT ON (%s)' % ', '.join(self.query.distinct)) 
+            else:
+                result.append(self.connection.ops.distinct_sql(distinct_fields))
 
         result.append(', '.join(out_cols + self.query.ordering_aliases))
 
@@ -528,6 +531,15 @@ class SQLCompiler(object):
             if alias not in self.query.alias_map or self.query.alias_refcount[alias] == 1:
                 connector = not first and ', ' or ''
                 result.append('%s%s' % (connector, qn(alias)))
+                first = False
+        for alias, t in self.query.extra_tables_dict.iteritems():
+            _, unused = self.query.table_alias(t, alias=alias)
+            # Only add the alias if it's not already present (the table_alias()
+            # calls increments the refcount, so an alias refcount of one means
+            # this is the only reference.
+            if alias not in self.query.alias_map or self.query.alias_refcount[alias] == 1:
+                connector = not first and ', ' or ''
+                result.append('%s%s %s' % (connector, qn(t), qn(alias)))
                 first = False
         return result, []
 

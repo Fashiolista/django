@@ -4,7 +4,7 @@ from functools import reduce
 from django.core.exceptions import SuspiciousOperation, ImproperlyConfigured
 from django.core.paginator import InvalidPage
 from django.core.urlresolvers import reverse
-from django.db import models
+from django.db import models, router
 from django.db.models.fields import FieldDoesNotExist
 from django.utils.datastructures import SortedDict
 from django.utils.encoding import force_str, force_text
@@ -160,7 +160,14 @@ class ChangeList(object):
                 p[k] = v
         return '?%s' % urlencode(sorted(p.items()))
 
+
     def get_results(self, request):
+        # if max_count is set on the model_admin than that will be the max
+        max_count = getattr(self.model_admin, 'max_count', False)
+        if max_count:
+            result_count = max_count
+            self.query_set = self.query_set[:max_count]
+
         paginator = self.model_admin.get_paginator(request, self.query_set, self.list_per_page)
         # Get the number of objects, with admin filters applied.
         result_count = paginator.count
@@ -169,7 +176,7 @@ class ChangeList(object):
         # Perform a slight optimization: Check to see whether any filters were
         # given. If not, use paginator.hits to calculate the number of objects,
         # because we've already done paginator.hits and the value is cached.
-        if not self.query_set.query.where:
+        if not self.query_set.query.where or max_count:
             full_result_count = result_count
         else:
             full_result_count = self.root_query_set.count()
@@ -329,6 +336,7 @@ class ChangeList(object):
         # Use select_related() if one of the list_display options is a field
         # with a relationship and the provided queryset doesn't already have
         # select_related defined.
+        select_related = []
         if not qs.query.select_related:
             if self.list_select_related:
                 qs = qs.select_related()
@@ -336,12 +344,16 @@ class ChangeList(object):
                 for field_name in self.list_display:
                     try:
                         field = self.lookup_opts.get_field(field_name)
-                    except models.FieldDoesNotExist:
+                        field.rel.to
+                    except (models.FieldDoesNotExist, AttributeError):
                         pass
                     else:
+                        if not router.allow_relation(self.model(), field.rel.to()):
+                            continue
                         if isinstance(field.rel, models.ManyToOneRel):
-                            qs = qs.select_related()
-                            break
+                            select_related.append(field.name)
+                if select_related:
+                    qs = qs.select_related(*select_related)
 
         # Set ordering.
         ordering = self.get_ordering(request, qs)

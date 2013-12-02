@@ -123,6 +123,8 @@ class Command(NoArgsCommand):
                         if verbosity >= 2:
                             self.stdout.write("Installing custom SQL for %s.%s model\n" % (app_name, model._meta.object_name))
                         try:
+                            #DJANGO PATCH TO SUPPORT PLPGSQL IMPORTS IN sql/modelname.sql files
+                            custom_sql = [''.join(custom_sql)]
                             for sql in custom_sql:
                                 cursor.execute(sql)
                         except Exception as e:

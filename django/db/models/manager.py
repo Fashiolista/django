@@ -100,8 +100,8 @@ class Manager(object):
         return mgr
 
     def db_manager(self, using):
+        #DJANGO PATCH: going to ignore this parameter, sorry mate :/
         obj = copy.copy(self)
-        obj._db = using
         return obj
 
     @property

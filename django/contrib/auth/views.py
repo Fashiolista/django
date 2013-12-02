@@ -33,7 +33,7 @@ def login(request, template_name='registration/login.html',
     Displays the login form and handles the login action.
     """
     redirect_to = request.REQUEST.get(redirect_field_name, '')
-
+    print redirect_to
     if request.method == "POST":
         form = authentication_form(data=request.POST)
         if form.is_valid():

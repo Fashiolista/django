@@ -2,8 +2,14 @@ from django.db import models
 from django.utils.translation import ugettext_lazy as _
 from django.utils.encoding import smart_text, force_text
 from django.utils.encoding import python_2_unicode_compatible
+from orm_cache.model_managers import cache_manager_factory
 
-class ContentTypeManager(models.Manager):
+
+#HACK: TODO: Please port this
+cached_model_manager = cache_manager_factory(all=True, version=0.1, fields=[])
+
+
+class ContentTypeManager(cached_model_manager):
 
     # Cache to avoid re-looking up ContentType objects all over the place.
     # This cache is shared by all the get_for_* methods.
@@ -27,6 +33,13 @@ class ContentTypeManager(models.Manager):
     def _get_from_cache(self, opts):
         key = (opts.app_label, opts.object_name.lower())
         return self.__class__._cache[self.db][key]
+    
+    def initialize_cache(self):
+        all_content_types = self.get_all_cached()
+        from django.conf import settings
+        for ct in all_content_types:
+            for name in settings.DATABASES:
+                self._add_to_cache(self.db, ct)
 
     def get_for_model(self, model, for_concrete_model=True):
         """
@@ -38,15 +51,19 @@ class ContentTypeManager(models.Manager):
         try:
             ct = self._get_from_cache(opts)
         except KeyError:
-            # Load or create the ContentType entry. The smart_text() is
-            # needed around opts.verbose_name_raw because name_raw might be a
-            # django.utils.functional.__proxy__ object.
-            ct, created = self.get_or_create(
-                app_label = opts.app_label,
-                model = opts.object_name.lower(),
-                defaults = {'name': smart_text(opts.verbose_name_raw)},
-            )
-            self._add_to_cache(self.db, ct)
+            self.initialize_cache()
+            try:
+                ct = self._get_from_cache(opts)
+            except KeyError:
+                # Load or create the ContentType entry. The smart_text() is
+                # needed around opts.verbose_name_raw because name_raw might be a
+                # django.utils.functional.__proxy__ object.
+                ct, created = self.get_or_create(
+                    app_label = opts.app_label,
+                    model = opts.object_name.lower(),
+                    defaults = {'name': smart_text(opts.verbose_name_raw)},
+                )
+                self._add_to_cache(self.db, ct)
 
         return ct
 
@@ -98,6 +115,8 @@ class ContentTypeManager(models.Manager):
         Lookup a ContentType by ID. Uses the same shared cache as get_for_model
         (though ContentTypes are obviously not created on-the-fly by get_by_id).
         """
+        # convert to int to avoid cache misses
+        id = int(id)
         try:
             ct = self.__class__._cache[self.db][id]
         except KeyError:
@@ -119,9 +138,10 @@ class ContentTypeManager(models.Manager):
     def _add_to_cache(self, using, ct):
         """Insert a ContentType into the cache."""
         model = ct.model_class()
-        key = (model._meta.app_label, model._meta.object_name.lower())
-        self.__class__._cache.setdefault(using, {})[key] = ct
-        self.__class__._cache.setdefault(using, {})[ct.id] = ct
+        if model:
+            key = (model._meta.app_label, model._meta.object_name.lower())
+            self.__class__._cache.setdefault(using, {})[key] = ct
+            self.__class__._cache.setdefault(using, {})[ct.id] = ct
 
 @python_2_unicode_compatible
 class ContentType(models.Model):
@@ -164,8 +184,21 @@ class ContentType(models.Model):
         method. The ObjectNotExist exception, if thrown, will not be caught,
         so code that calls this method should catch it.
         """
-        return self.model_class()._base_manager.using(self._state.db).get(**kwargs)
+        if self.app_label == 'auth' and self.model == 'user':
+            from django.contrib.auth import get_user_model
+            pk = int(kwargs.get('pk', kwargs.get('id', 0)))
+            instance = get_user_model().objects.get_cached_user(pk)
+        elif self.app_label == 'entity' and self.model == 'entity':
+            from entity.cache_objects import entity_cache
+            pk = int(kwargs.get('pk', kwargs.get('id', 0)))
+            instance = entity_cache[pk]
+        else:
+            instance = self.model_class()._default_manager.get(**kwargs)
+            # PATCH DJANGO to not force the use of a specific db
+            # instance = self.model_class()._default_manager.using(self._state.db).get(**kwargs)
 
+        return instance
+        
     def get_all_objects_for_this_type(self, **kwargs):
         """
         Returns all objects of this type for the keyword arguments given.

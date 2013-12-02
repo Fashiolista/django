@@ -17,6 +17,10 @@ from django.db.models.deletion import Collector
 from django.db.models import sql
 from django.utils.functional import partition
 from django.utils import six
+from StringIO import StringIO
+from django.conf import settings
+import logging 
+logger = logging.getLogger(__name__)
 
 # Used to control how many objects are worked with at once in some cases (e.g.
 # when deleting objects).
@@ -74,6 +78,20 @@ class QuerySet(object):
         return obj_dict
 
     def __repr__(self):
+        query = self.query
+        # small hack to add query formatting if possible
+        try:
+            import sqlparse
+            query = sqlparse.format(unicode(query), reindent=True)
+        except:
+            pass
+
+        return '<%s[%s.%s] %s>' % (
+            self.__class__.__name__,
+            self.model._meta.module_name,
+            self.model._meta.object_name,
+            query,
+        )
         data = list(self[:REPR_OUTPUT_SIZE + 1])
         if len(data) > REPR_OUTPUT_SIZE:
             data[-1] = "...(remaining elements truncated)..."
@@ -87,6 +105,28 @@ class QuerySet(object):
             if self._iter:
                 self._result_cache = list(self._iter)
             else:
+                msg = 'len() on an unsliced queryset is not allowed'
+                try:
+                    assert self.query.high_mark is not None, msg
+                except AssertionError:
+                    if getattr(settings, 'DISALLOW_UNSLICED_QUERYSET', False):
+                        raise
+                    # Print a clean stacktrace
+                    import traceback 
+                    stack = traceback.extract_stack()
+                    for i, x in enumerate(stack):
+                        if 'django/core/handlers/base.py' in x[0]:
+                            stack = stack[i+1:]
+                            break
+                    
+                    tmp = StringIO()
+                    traceback.print_list(stack, tmp)
+                    msg += '\n' + tmp.getvalue()
+
+                    #if not self.query.high_mark:
+                    #    self.query.high_mark = 100
+                    #This breaks my logging and is often unfixable
+                    #logger.warn(msg, exc_info=sys.exc_info())
                 self._result_cache = list(self.iterator())
         elif self._iter:
             self._result_cache.extend(self._iter)
@@ -132,7 +172,10 @@ class QuerySet(object):
         if self._result_cache is not None:
             return bool(self._result_cache)
         try:
-            next(iter(self))
+            if self.query.high_mark:
+                iter(self).next()
+            else:
+                return bool(list(self[:1]))
         except StopIteration:
             return False
         return True
@@ -379,6 +422,10 @@ class QuerySet(object):
         clone = self.filter(*args, **kwargs)
         if self.query.can_filter():
             clone = clone.order_by()
+
+        # Slice the queryset just in case we somehow get a huge queryset
+        clone = clone[:2]
+
         num = len(clone)
         if num == 1:
             return clone._result_cache[0]
@@ -470,6 +517,7 @@ class QuerySet(object):
             return self.get(**lookup), False
         except self.model.DoesNotExist:
             try:
+                self._for_write = True
                 params = dict([(k, v) for k, v in kwargs.items() if '__' not in k])
                 params.update(defaults)
                 obj = self.model(**params)

@@ -28,6 +28,7 @@ from django.utils import six
 from django.utils.text import get_text_list, capfirst
 
 
+
 def subclass_exception(name, parents, module, attached_to=None):
     """
     Create exception subclass. Used by ModelBase below.
@@ -605,7 +606,7 @@ class Model(six.with_metaclass(ModelBase)):
                 return
 
         if not meta.proxy:
-            non_pks = [f for f in meta.local_fields if not f.primary_key]
+            non_pks = [f for f in meta.local_fields if not f.primary_key and not f.readonly]
 
             if update_fields:
                 non_pks = [f for f in non_pks if f.name in update_fields or f.attname in update_fields]
@@ -993,13 +994,37 @@ class Empty(object):
     pass
 
 
-def model_unpickle(model, attrs):
+################################################################################
+# FASHIOLISTA_PATCH BEGIN                                                      #
+# simple_class_factory removed from Django 1.4                                 #
+# we need to be able to deserialise models                                     #
+# from django 1.3                                                              #
+# we also need to keep a compatible signature with the django 1.3 version      #
+# for the function model_unpickle                                              #
+################################################################################
+
+
+def simple_class_factory(model, attrs):
+    """Used to unpickle Models without deferred fields.
+
+    We need to do this the hard way, rather than just using
+    the default __reduce__ implementation, because of a
+    __deepcopy__ problem in Python 2.4
+    """
+    return model
+
+def model_unpickle(model, attrs, factory=None):
     """
     Used to unpickle Model subclasses with deferred fields.
     """
     cls = deferred_class_factory(model, attrs)
     return cls.__new__(cls)
 model_unpickle.__safe_for_unpickle__ = True
+
+#########################
+# FASHIOLISTA_PATCH END #
+#########################
+
 
 
 def unpickle_inner_exception(klass, exception_name):

@@ -43,6 +43,11 @@ class Command(BaseCommand):
         ignore = options.get('ignore')
         using = options.get('database')
 
+        db_name = connections['default'].settings_dict['NAME']
+        db_host = connections['default'].settings_dict['HOST']
+        if 'goteam' in db_host.split('.'):
+            raise ValueError('refusing to load data in %s because it looks like our production db' % db_name)
+
         connection = connections[using]
 
         if not len(fixture_labels):
@@ -237,7 +242,10 @@ class Command(BaseCommand):
         # If we found even one object in a fixture, we need to reset the
         # database sequences.
         if loaded_object_count > 0:
-            sequence_sql = connection.ops.sequence_reset_sql(no_style(), models)
+            # TODO: THIS DOES NOT WORK FOR MULTIDB FOREIGNKEYS
+            # uncomment this line and find a proper solution for this!
+            # sequence_sql = connection.ops.sequence_reset_sql(no_style(), models)
+            sequence_sql = []
             if sequence_sql:
                 if verbosity >= 2:
                     self.stdout.write("Resetting sequences\n")

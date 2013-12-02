@@ -33,6 +33,7 @@ class BaseMemcachedCache(BaseCache):
         if getattr(self, '_client', None) is None:
             self._client = self._lib.Client(self._servers)
 
+
         return self._client
 
     def _get_memcache_timeout(self, timeout):
@@ -75,6 +76,7 @@ class BaseMemcachedCache(BaseCache):
         self._cache.delete(key)
 
     def get_many(self, keys, version=None):
+        keys = list(keys)
         new_keys = map(lambda x: self.make_key(x, version=version), keys)
         ret = self._cache.get_multi(new_keys)
         if ret:

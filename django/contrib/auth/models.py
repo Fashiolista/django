@@ -20,6 +20,7 @@ from django.contrib.auth.hashers import (
 from django.contrib.auth.signals import user_logged_in
 from django.contrib.contenttypes.models import ContentType
 from django.utils.encoding import python_2_unicode_compatible
+import datetime
 
 
 def update_last_login(sender, user, **kwargs):
@@ -27,8 +28,21 @@ def update_last_login(sender, user, **kwargs):
     A signal receiver which updates the last_login date for
     the user logging in.
     """
+    from django.conf import settings
+    from gargoyle import gargoyle
+    previous_last_login = user.last_login
     user.last_login = timezone.now()
-    user.save(update_fields=['last_login'])
+    login_ip = kwargs['request'].META.get('REMOTE_ADDR')
+    if login_ip:
+        user.last_login_ip = login_ip
+    user.save(update_ip=True, update_fields=['last_login', 'last_login_ip'])
+    one_week_ago = timezone.now() - datetime.timedelta(days=settings.FEEDLY_AGGREGATED_FEED_DAYS)
+    if gargoyle.is_active('feedly_writes'):
+        if previous_last_login < one_week_ago:
+            from fashiolista_feedly.tasks import create_aggregated
+            create_aggregated.delay(user)
+    
+    
 user_logged_in.connect(update_last_login)
 
 

@@ -495,8 +495,9 @@ class ForeignRelatedObjectsDescriptor(object):
                 try:
                     return self.instance._prefetched_objects_cache[rel_field.related_query_name()]
                 except (AttributeError, KeyError):
-                    db = self._db or router.db_for_read(self.model, instance=self.instance)
-                    qs = super(RelatedManager, self).get_query_set().using(db).filter(**self.core_filters)
+                    qs = super(RelatedManager, self).get_query_set().filter(**self.core_filters)
+                    if self._db:
+                        qs = qs.using(self._db)
                     val = getattr(self.instance, attname)
                     if val is None or val == '' and connections[db].features.interprets_empty_strings_as_nulls:
                         # We don't want to use qs.none() here, see #19652
@@ -1022,7 +1023,8 @@ class ForeignKey(RelatedField, Field):
                 **{self.rel.field_name: value}
              )
         qs = qs.complex_filter(self.rel.limit_choices_to)
-        if not qs.exists():
+        from framework.db.fields import VeryForeignKey
+        if not isinstance(self, VeryForeignKey) and not qs.exists():
             raise exceptions.ValidationError(self.error_messages['invalid'] % {
                 'model': self.rel.to._meta.verbose_name, 'pk': value})
 
