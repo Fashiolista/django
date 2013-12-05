@@ -85,7 +85,7 @@ version = __import__('django').get_version()
 
 setup(
     name = "Django",
-    version = '1.5.1-fashiolista-1', #version,
+    version = '1.5.1-fashiolista-2', #version,
     url = 'http://www.djangoproject.com/',
     author = 'Django Software Foundation',
     author_email = 'foundation@djangoproject.com',
